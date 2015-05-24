@@ -1,0 +1,129 @@
+---
+title: "Course Project: Writeup"
+author: "Anshumaan Bajpai"
+date: "Wednesday, May 20, 2015"
+output: html_document
+---
+
+This document is a part of the course project for Practical Machine Learning course on Coursera. The document is prepared in a series form where the steps performed are explained as we go ahead.
+
+## Aim
+In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data is divided into two sections:  
+
+        - Training Set  
+        - Testing Set
+        
+Athletes were asked to perform various exercises correctly and incorrectly.
+I will use the training set data first to train the model to predict if the actions were performed correctly or not. After the model is ready, it will be used to predict the actions for the testing set.
+
+#### Setting the working directory
+```{r, Section_1, echo=TRUE}
+library(knitr)
+## This section sets the working directory where all the files will be saved
+setwd("C:/Users/Anshumaan/Desktop/Notre Dame (abajpai1@nd.edu)/Coursera/Paid/Practical_Machine_Learning/Project")
+
+```
+
+Next up we download the requisite data from the web. We will be downloading the data just once and therefore this section will not be evaluated everytime the code is run.
+
+#### Downloading the data
+```{r, Section_2, echo=TRUE, eval=TRUE}
+## Downloading testing data
+setInternet2(TRUE)
+if (!file.exists("./pml_training.csv")){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                      "./pml_training.csv")
+}
+## Dowloading training data
+if (!file.exists("./pml_testing.csv")){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                      "./pml_testing.csv")
+}
+```
+
+#### Loading the Data
+```{r, section_3, echo=TRUE, eval=TRUE}
+## Reading the training data
+pml_training <- read.csv("./pml_training.csv", header=TRUE, na.strings=c("NA", ""))
+## Retaining only the columns that have less than 30% values as NA and then remove rows with NA
+pml_training <- pml_training[, colMeans(is.na(pml_training)) < 0.3]
+pml_training <- na.omit(pml_training)
+pml_training$classe <- as.factor(pml_training$classe)
+
+## Reading the testing data
+pml_testing <- read.csv("./pml_testing.csv", header=TRUE, na.strings=c("NA", ""))
+## Retaining only the columns that have less than 30% values as NA and then remove rows with NA
+pml_testing <- pml_testing[, colMeans(is.na(pml_testing)) < 0.3]
+pml_testing <- na.omit(pml_testing)
+
+dim(pml_testing)
+dim(pml_training)
+```
+
+In the above section we load both the data: training as well as testing. For both cases, we have insured that we are only using the variables that are present for all the observations.
+We do not used the testing set at all for building our model.
+We see that after doing the initial data process, there are 59 variables that do not have NA's in it. Just a brief overview of the data using str() function tells us that there are dates and other similar components which would not affect the output but are present in the dataset. So we need to figure out which ones of the variables are critical in predicting the classe of the model.
+
+Looking at the data from the original source, it seems there are 4 sensors with 9 measured values and 4 calculated values for each making it a total of 4 * (9+4) = 52 useful predictors. My plan is to build my model on these 52 predictors. So now we reduce our training and testing sets to the requisite predictors. We do however need to make sure that after reducing the dataset to 60 variables, the column in the pml_training and pml_testing set are same. We do so by comparing the colnames for the two dataset except the last column.
+
+## comparing the two dataset for predictor values
+```{r, section_4, echo=TRUE}
+sum(colnames(pml_training[,-ncol(pml_training)]) == colnames(pml_testing[,-ncol(pml_testing)]))  ## Ensuring that the column are same in pml_testing and pml_training datasets. 
+```
+Since the above sum is 59 so all the columns in the two datasets are same. Now we subset the two datasets to have only the 52 important variables
+
+## Subsetting the datasets to extract relevant predictors
+```{r, section_5, echo=TRUE}
+pml_training <- pml_training[, 8:60]
+pml_testing <- pml_testing[, 8:60]
+```
+
+In order to estimate the out of sample error, I did cross validation. To do that I have divided pml_training data further into a training and a testing set. The training has been done using random forrest classification method.
+
+## Training the model
+```{r, section_6, echo=TRUE}
+library(caret)
+inTrain <- createDataPartition(y = pml_training$classe, p = 0.75, list=FALSE)
+training <- pml_training[inTrain,]
+testing <- pml_training[-inTrain,]
+
+## I am using random forest for the model training 
+library(randomForest)
+modelFit <- randomForest(classe ~ ., data = training) # training the model using randomForest
+test_pred <- predict(modelFit, testing) # predicting the class for the test to cross validate the model
+
+## Next up we look at the confusion matrix for the prediction
+confusionMatrix(test_pred, testing$classe)
+```
+The results of cross validation using the testing dataset described above are encouraging. We find that our model has accuracy over 99.5%. Hence the out of sample error is very low which indicates that the randomForest method does an excellent job for the case at hand. I am sure it is possible to reduce the number of predictors in the model but even with so many predictors, it seems the model does not overfit and produces reliable results.
+
+Lets look at the predictors in terms of their importance in predicting the class.
+
+## Estimating the important variables
+```{r, section_7, echo=TRUE, eval=TRUE}
+varImp(modelFit)
+## Next we plot pairs for the important parameters
+qplot(roll_belt, pitch_belt, color=classe, data=training)
+qplot(roll_forearm, pitch_forearm, color=classe, data=training)
+```
+
+We observe some trend among the parameters but it is difficult to quantify the trend. One of the parameters is spread across the entire domain.
+Finally, we use the model to make predictions on the pml_testing dataset.
+
+## Predicting the unknown dataset
+```{r, section_8, echo=TRUE, eval=TRUE}
+## These predictions are the answers to the prediction assignment. This section will predict the classe for 20 unknown datasets and also create the submission files for each of them.
+
+answers <- predict(modelFit, pml_testing)
+answers
+```
+
+Now we write the answers to output files.
+
+## Writing output files.
+```{r, section_9, echo=TRUE, eval=FALSE}
+for(i in 1:length(answers)){
+        filename <- paste0("problem_id_",i,".txt")
+         write.table(answers[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+}
+```
